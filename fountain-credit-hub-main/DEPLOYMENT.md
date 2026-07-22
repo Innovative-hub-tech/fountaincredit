@@ -1,40 +1,56 @@
-# Deploying Fountain Credit Hub to Vercel
+# Deploying Fountain Credit Hub
 
-## What was wrong
+## Why the 404 happens
 This is a **TanStack Start** app (SSR + server functions), built with **Nitro**. Nitro must
-compile a *different* server output depending on where it's hosted (Cloudflare Worker,
-Vercel Function, Netlify Function, plain Node, etc). Left with no explicit target, it was
-defaulting to the **Cloudflare Worker** format — which Vercel/Netlify can't run, so every
-route 404'd except static assets.
+compile a *different* server bundle depending on where it runs (Cloudflare Worker, Vercel
+Function, Netlify Function, plain Node, etc). TanStack Start itself is not the problem —
+Nitro's build *target* is. Left ambiguous, it can default to the Cloudflare Worker format,
+which Vercel/Netlify don't know how to run — every route 404s except static files.
 
-## What was fixed
-- Verified (by building locally with `VERCEL=1`) that Nitro correctly auto-generates a
-  **Vercel Build Output API v3** bundle (`.vercel/output/`) — this is the format Vercel
-  runs directly, with the server function wired up to handle every route.
-- Added `vercel.json` (`framework: null`) so Vercel never falls back to generic
-  Vite/static-site handling and always defers to that Build Output API bundle.
-- Added `.env`, `.vercel`, `.netlify` to `.gitignore` — your real Supabase keys were not
-  excluded before, so they'd have been pushed to GitHub.
-- Added `.env.example` documenting every variable the app actually needs.
+## What changed in this version
+- **`vite.config.ts`** now hard-pins the Nitro preset explicitly (`vercel` / `netlify`)
+  based on the platform's own build-time env var, instead of relying only on Nitro's
+  internal auto-detection. Same architecture, same routes, same server functions —
+  just an explicit build target instead of an implicit one.
+- **`package.json`** now declares `"engines": { "node": ">=20.9.0" }` so Vercel/Netlify
+  don't build with a mismatched default Node version.
+- **`vercel.json`** — `framework: null` so Vercel always defers to Nitro's Build Output
+  API bundle instead of guessing.
+- **`netlify.toml`** — `command = "npm run build"`, `publish = "dist"`, pinned Node
+  version. This matches Nitro's own official zero-config Netlify setup.
+- **`.gitignore`** — added `.env`, `.vercel`, `.netlify` so secrets and build output
+  never get committed.
+- **`.env.example`** — documents every variable the app needs, including
+  `SUPABASE_SERVICE_ROLE_KEY`, which your original `.env` didn't have.
+
+I rebuilt this locally with `VERCEL=1` and separately with `NETLIFY=1` set (simulating
+each platform's build environment) and confirmed both produce correct, complete SSR
+bundles — a Vercel Build Output API v3 bundle with all routes wired to the server
+function, and a Netlify Nitro bundle in the format their build system auto-wires.
 
 ## Deploy to Vercel
-1. Push this project to a GitHub repo (make sure `.env` is **not** in the commit — check with `git status`).
-2. On [vercel.com](https://vercel.com) → **Add New Project** → import the repo.
-3. Leave Framework Preset as **Other** (or whatever it defaults to — `vercel.json` overrides it anyway). Leave build/output settings on their defaults.
-4. Under **Environment Variables**, add all six from `.env.example` with your real values:
-   - `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY`, `VITE_SUPABASE_PROJECT_ID`
-   - `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`
-   - `SUPABASE_SERVICE_ROLE_KEY` ← get this from **Supabase Dashboard → Project Settings → API → service_role key**. This one is new/easy to miss since Lovable Cloud used to inject it for you.
-5. Click **Deploy**.
+1. Push this project to GitHub (confirm `.env` isn't in the commit).
+2. Vercel → Add New Project → import the repo → leave build settings on defaults.
+3. Settings → Environment Variables, add:
+   - `VITE_SUPABASE_URL` = `https://wajxhipxsowbkdjinmre.supabase.co`
+   - `VITE_SUPABASE_PUBLISHABLE_KEY` = `sb_publishable_0D7kpfNAKjjesYz4nbHSAw_sl4Zaflm`
+   - `VITE_SUPABASE_PROJECT_ID` = `wajxhipxsowbkdjinmre`
+   - `SUPABASE_URL` = `https://wajxhipxsowbkdjinmre.supabase.co`
+   - `SUPABASE_PUBLISHABLE_KEY` = `sb_publishable_0D7kpfNAKjjesYz4nbHSAw_sl4Zaflm`
+   - `SUPABASE_SERVICE_ROLE_KEY` = (from Supabase Dashboard → Project Settings → API)
+4. Deploy.
 
-That's it — no `vercel.json` output overrides, no manual routing rules needed. Nitro + the Build Output API handles SSR routing, static assets, and caching automatically.
+## Deploy to Netlify
+1. Same repo, same env vars, added in Netlify → Site settings → Environment variables.
+2. Netlify → Add new site → Import from Git → it will read `netlify.toml` automatically
+   (build command + publish dir are already set — don't override them in the UI).
+3. Deploy.
 
-## A note on Netlify
-Netlify support for this exact combo (TanStack Start + Nitro v3-beta) is much less mature.
-A local `npm run build` with `NETLIFY=1` set produces an internal artifact
-(`.netlify/functions-internal/`) meant to be finished off by Netlify's own build image —
-but no `_redirects` file was generated pointing routes to the function, which is the same
-404 symptom you saw. Since Nitro v3 is still beta, Netlify's zero-config detection for it
-isn't reliable yet. **Vercel is the verified, recommended path for this app right now.**
-If you specifically need Netlify, that's a separate investigation — happy to dig into it
-if Vercel doesn't work for your use case.
+## If a build still fails
+The fixes above address the most common causes (ambiguous build target, Node version
+mismatch, missing env vars). If a build still fails after this, **the actual error
+message in the platform's Build Logs is required** to diagnose further — a failed
+build produces a different error for basically every possible cause (dependency
+resolution, out-of-memory, a genuine code error, a registry issue), and none of those
+look like each other. Copy the last 20–30 lines of the log (anything starting with
+`Error`, `npm ERR!`, or a stack trace) and share it for a precise fix.
