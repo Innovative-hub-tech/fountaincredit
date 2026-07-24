@@ -1,0 +1,13 @@
+[build]
+  base = "fountain-credit-hub-main"
+  command = "npm run build"
+  publish = "fountain-credit-hub-main/dist"
+
+[build.environment]
+  NODE_VERSION = "20.9.0"
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+  force = true
